@@ -224,7 +224,10 @@ class Package(nimp.command.Command):
 
 
         if env.variant:
-            variant_configuration_directory = package_configuration.configuration_directory + '/Variants/Active'
+            if env.unreal_version >= 5.3:
+                variant_configuration_directory = package_configuration.configuration_directory + '/Custom/' + env.variant
+            else:
+                variant_configuration_directory = package_configuration.configuration_directory + '/Variants/Active'
             if os.path.exists(variant_configuration_directory):
                 package_configuration.configuration_directory = variant_configuration_directory
             variant_resource_directory = package_configuration.resource_directory + '/Variants/' + env.variant
@@ -363,15 +366,22 @@ class Package(nimp.command.Command):
             if is_monorepo_behavior:
                 _try_remove(active_configuration_directory, False)
             if should_configure_variant:
-                variant_configuration_directory = f'{project_directory}/Config/Variants/{env.variant}'
+                if env.unreal_version >= 5.3:
+                    variant_configuration_directory = f'{project_directory}/Config/Custom/{env.variant}'
+                else:
+                    variant_configuration_directory = f'{project_directory}/Config/Variants/{env.variant}'
                 if not os.path.exists(variant_configuration_directory):
                     raise FileNotFoundError(f"Variant not found : {variant_configuration_directory}")
-                logging.info(f'configuring variant {env.variant} in : {active_configuration_directory}')
-                shutil.copytree(variant_configuration_directory, active_configuration_directory, copy_function=shutil.copyfile)
+                configuration_directory = variant_configuration_directory
+                if not env.unreal_version >= 5.3:
+                    logging.info('configuring variant %s in : %s', env.variant, active_configuration_directory)
+                    shutil.copytree(variant_configuration_directory, active_configuration_directory, copy_function=shutil.copyfile)
+                    configuration_directory = active_configuration_directory
+
                 # necessary for shader debug info in case no defaultEngine is present
-                _setup_default_config_file(f'{active_configuration_directory}/DefaultEngine.ini')
-                _setup_default_config_file(f'{active_configuration_directory}/DefaultGame.ini')
-                Package.write_project_revisions(env, active_configuration_directory)
+                _setup_default_config_file(f'{configuration_directory}/DefaultEngine.ini')
+                _setup_default_config_file(f'{configuration_directory}/DefaultGame.ini')
+                Package.write_project_revisions(env, configuration_directory)
             if env.unreal_platform == 'PS5':
                 # UE only supports a single TitleConfiguration.json describing builds of the same package.
                 # To have DLCs in their own packages, we need to select the variant's one by copying it
@@ -412,12 +422,18 @@ class Package(nimp.command.Command):
         # order matters: from deepest ini to broadest (deep<-variant<-platform<-game)
         config_files_patterns = []
         if hasattr(env, 'variant') and env.variant:
-            config_files_patterns.extend([
-                '{uproject_dir}/Config/Variants/Active/{cook_platform}/{cook_platform}Game.ini',
-                '{uproject_dir}/Config/Variants/{variant}/{cook_platform}/{cook_platform}Game.ini',
-                '{uproject_dir}/Config/Variants/Active/DefaultGame.ini',
-                '{uproject_dir}/Config/Variants/{variant}/DefaultGame.ini'
-            ])
+            if env.unreal_version >= 5.3:
+                config_files_patterns.extend([
+                    '{uproject_dir}/Config/{cook_platform}/Custom/{variant}/{cook_platform}Game.ini',
+                    '{uproject_dir}/Config/Custom/{variant}/DefaultGame.ini'
+                ])
+            else:
+                config_files_patterns.extend([
+                    '{uproject_dir}/Config/Variants/Active/{cook_platform}/{cook_platform}Game.ini',
+                    '{uproject_dir}/Config/Variants/{variant}/{cook_platform}/{cook_platform}Game.ini',
+                    '{uproject_dir}/Config/Variants/Active/DefaultGame.ini',
+                    '{uproject_dir}/Config/Variants/{variant}/DefaultGame.ini'
+                ])
         config_files_patterns.extend([
             '{uproject_dir}/Platforms/{cook_platform}/Config/DefaultGame.ini',
             '{uproject_dir}/Config/DefaultGame.ini',
@@ -694,7 +710,11 @@ class Package(nimp.command.Command):
             cook_command += shlex.split(option)
 
         # Load the active variant
-        cook_command += [ '-DNEConfigVariant' ]
+        if env.unreal_version >= 5.3:
+            if env.variant:
+                cook_command += [ f'-CustomConfig={env.variant}' ]
+        else:
+            cook_command += [ '-DNEConfigVariant' ]
 
         if package_configuration.shader_debug_info:
             sdb_path = package_configuration.project_directory + '/Saved/ShaderDebugInfo/' + package_configuration.target_platform
@@ -789,6 +809,10 @@ class Package(nimp.command.Command):
 
             if env.is_dne_legacy_ue4:
                 stage_command += [ '-SkipPak' ]
+
+            if env.unreal_version >= 5.3:
+                if env.variant:
+                    stage_command += [ f'-CustomConfig={env.variant}' ]
 
             stage_success = nimp.sys.process.call(stage_command, dry_run=env.dry_run, heartbeat=60)
             if stage_success != 0:
@@ -1279,6 +1303,10 @@ class Package(nimp.command.Command):
 
             if package_configuration.no_compile_packaging:
                 package_command += [ '-NoCompile' ]
+
+            if env.unreal_version >= 5.3:
+                if env.variant:
+                    package_command += [ f'-CustomConfig={env.variant}' ]
 
             for option in package_configuration.extra_options:
                 package_command += shlex.split(option)
