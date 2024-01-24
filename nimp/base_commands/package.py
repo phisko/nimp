@@ -223,8 +223,9 @@ class Package(nimp.command.Command):
         package_configuration.uat_logs_directory = package_configuration.engine_directory + '/Programs/AutomationTool/Saved/Logs'
 
 
+        env.use_ue_custom_config = env.unreal_version >= 5.3
         if env.variant:
-            if env.unreal_version >= 5.3:
+            if env.use_ue_custom_config:
                 variant_configuration_directory = package_configuration.configuration_directory + '/Custom/' + env.variant
             else:
                 variant_configuration_directory = package_configuration.configuration_directory + '/Variants/Active'
@@ -366,14 +367,14 @@ class Package(nimp.command.Command):
             if is_monorepo_behavior:
                 _try_remove(active_configuration_directory, False)
             if should_configure_variant:
-                if env.unreal_version >= 5.3:
+                if env.use_ue_custom_config:
                     variant_configuration_directory = f'{project_directory}/Config/Custom/{env.variant}'
                 else:
                     variant_configuration_directory = f'{project_directory}/Config/Variants/{env.variant}'
                 if not os.path.exists(variant_configuration_directory):
                     raise FileNotFoundError(f"Variant not found : {variant_configuration_directory}")
                 configuration_directory = variant_configuration_directory
-                if not env.unreal_version >= 5.3:
+                if not env.use_ue_custom_config:
                     logging.info('configuring variant %s in : %s', env.variant, active_configuration_directory)
                     shutil.copytree(variant_configuration_directory, active_configuration_directory, copy_function=shutil.copyfile)
                     configuration_directory = active_configuration_directory
@@ -422,7 +423,7 @@ class Package(nimp.command.Command):
         # order matters: from deepest ini to broadest (deep<-variant<-platform<-game)
         config_files_patterns = []
         if hasattr(env, 'variant') and env.variant:
-            if env.unreal_version >= 5.3:
+            if env.use_ue_custom_config:
                 config_files_patterns.extend([
                     '{uproject_dir}/Config/{cook_platform}/Custom/{variant}/{cook_platform}Game.ini',
                     '{uproject_dir}/Config/Custom/{variant}/DefaultGame.ini'
@@ -710,11 +711,11 @@ class Package(nimp.command.Command):
             cook_command += shlex.split(option)
 
         # Load the active variant
-        if env.unreal_version >= 5.3:
-            if env.variant:
-                cook_command += [ f'-CustomConfig={env.variant}' ]
-        else:
-            cook_command += [ '-DNEConfigVariant' ]
+        if env.variant:
+            if env.use_ue_custom_config:
+                    cook_command += [ f'-CustomConfig={env.variant}' ]
+            else:
+                cook_command += [ '-DNEConfigVariant' ]
 
         if package_configuration.shader_debug_info:
             sdb_path = package_configuration.project_directory + '/Saved/ShaderDebugInfo/' + package_configuration.target_platform
@@ -810,7 +811,7 @@ class Package(nimp.command.Command):
             if env.is_dne_legacy_ue4:
                 stage_command += [ '-SkipPak' ]
 
-            if env.unreal_version >= 5.3:
+            if env.use_ue_custom_config:
                 if env.variant:
                     stage_command += [ f'-CustomConfig={env.variant}' ]
 
@@ -1304,7 +1305,7 @@ class Package(nimp.command.Command):
             if package_configuration.no_compile_packaging:
                 package_command += [ '-NoCompile' ]
 
-            if env.unreal_version >= 5.3:
+            if env.use_ue_custom_config:
                 if env.variant:
                     package_command += [ f'-CustomConfig={env.variant}' ]
 
